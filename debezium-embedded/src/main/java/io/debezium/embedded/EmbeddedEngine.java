@@ -202,12 +202,14 @@ public final class EmbeddedEngine implements DebeziumEngine<SourceRecord> {
             .withDescription("Optional list of single message transformations applied on the messages. "
                     + "The transforms are defined using '<transform.prefix>.type' config option and configured using options '<transform.prefix>.<option>'");
 
+    private static final int DEFAULT_ERROR_MAX_RETRIES = -1;
+
     private static final Field ERRORS_MAX_RETRIES = Field.create("errors.max.retries")
             .withDisplayName("The maximum number of retries")
             .withType(Type.INT)
             .withWidth(Width.SHORT)
             .withImportance(Importance.MEDIUM)
-            .withDefault(-1)
+            .withDefault(DEFAULT_ERROR_MAX_RETRIES)
             .withValidation(Field::isInteger)
             .withDescription("The maximum number of retries on connection errors before failing (-1 = no limit, 0 = disabled, > 0 = num of retries).");
 
@@ -852,6 +854,11 @@ public final class EmbeddedEngine implements DebeziumEngine<SourceRecord> {
                                 int maxRetries = getErrorsMaxRetries();
                                 LOGGER.info("Retriable exception thrown, connector will be restarted; errors.max.retries={}", maxRetries, e);
                                 if (maxRetries != 0) {
+                                    if (maxRetries < DEFAULT_ERROR_MAX_RETRIES) {
+                                        LOGGER.error("Can't start the connector, no attempts made to retry; stopping connector...", e);
+                                        retryError = e;
+                                        throw e;
+                                    }
                                     DelayStrategy delayStrategy = delayStrategy(config);
                                     int totalRetries = 0;
                                     boolean startedSuccessfully = false;
@@ -875,11 +882,6 @@ public final class EmbeddedEngine implements DebeziumEngine<SourceRecord> {
                                         }
                                         delayStrategy.sleepWhen(!startedSuccessfully);
                                     }
-                                }
-                                else {
-                                    LOGGER.error("Can't start the connector, max retries to connect exceeded; stopping connector...", e);
-                                    retryError = e;
-                                    throw e;
                                 }
                             }
                             try {
